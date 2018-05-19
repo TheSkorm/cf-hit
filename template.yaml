@@ -1,0 +1,101 @@
+Resources:
+  #### EDIT THIS RESOURCE HERE TO BUILD YOUR STACK
+  SetupStack:
+    Type: Custom::CFHit
+    Properties:
+      ServiceToken: !GetAtt HITLambda.Arn
+      Reward: "10.00"
+      Description: "Build an S3 bucket with the name potato-turk"
+      TurkEndpoint: "https://mturk-requester-sandbox.us-east-1.amazonaws.com" #we are using the mturk sandbox url for testing
+      Role: !GetAtt TurkRole.Arn
+      SNS: !Ref TurkSNS
+
+  # This is the role used by the HIT worker to build your enviroment. For this test we just leave it blank.
+  TurkRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+          -
+            Effect: "Allow"
+            Principal:
+                Service:
+                    - "lambda.amazonaws.com"
+            Action:
+                - "sts:AssumeRole"
+          -
+            Effect: Allow
+            Principal:
+                AWS: "*"
+            Action: ["sts:AssumeRole"]
+
+
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  # you probably don't need to edit anything below here here
+  # Alll this stuff here is just to make the custom resource work correctly.
+  LambdaRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - 
+          Effect: Allow
+          Principal:
+            Service:
+              - "lambda.amazonaws.com"
+          Action: ["sts:AssumeRole"]
+      Policies:
+      -
+        PolicyName: "ShimLambdaRole"
+        PolicyDocument:
+          Statement:
+          - 
+            Effect: Allow
+            Action: ["logs:CreateLogGroup","logs:CreateLogStream","logs:PutLogEvents"]
+            Resource: ["arn:aws:logs:*:*:*"]
+          -  # This allows the shim to access EVERYTHING. You probably don't want to run this in a production AWS account
+            Effect: Allow
+            Action: ["*"]
+            Resource: ["*"]
+  HITSNSLambdaSub:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt HITLambda.Arn
+      Protocol: lambda
+      TopicArn: !Ref TurkSNS
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: "lambda:InvokeFunction"
+      Principal: "sns.amazonaws.com"
+      SourceArn: !Ref TurkSNS
+      FunctionName: !GetAtt HITLambda.Arn
+
+  TurkSNS:
+    Type: "AWS::SNS::Topic"
+    
+  TurkSNSPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref TurkSNS
+      PolicyDocument:
+        Id: MyTopicPolicy
+        Version: '2012-10-17'
+        Statement:
+        - Sid: My-statement-id
+          Effect: Allow
+          Principal:
+            Service: "mturk-requester.amazonaws.com"
+          Action: sns:Publish
+          Resource: "*"
+
+  HITLambda:
+    Type: "AWS::Lambda::Function"
+    Properties: 
+      Handler: "script.handler"
+      Role: !GetAtt LambdaRole.Arn
+      Runtime: "python3.6"
+      Timeout: "300"
+      Code: ./script.zip
